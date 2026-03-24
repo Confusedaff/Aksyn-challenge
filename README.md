@@ -3,8 +3,8 @@
 A high-fidelity, low-latency audio streaming application built in C++17. This system captures raw audio from a microphone (bypassing OS mixer degradation via WASAPI Exclusive mode) and streams it over WebSockets to a receiving node for playback and recording.
 
 ## 🔗 Project Links
-* **Team Head Google Drive:** [Insert Link Here]
-* **Client Google Drive:** [Insert Link Here]
+* **Team Head Google Drive:** [https://drive.google.com/file/d/1E6YTVGmwlKECK_-p275U_oivKa62uYBn/view?usp=drive_link]
+* **Client Google Drive:** [https://drive.google.com/file/d/1Uk_PyAYJCmhTXOVQ_Kwpr_Q53wCz46Ee/view?usp=drive_link]
 
 ---
 
