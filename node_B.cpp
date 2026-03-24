@@ -22,6 +22,7 @@
 #include <vector>
 #include <string>
 #include <chrono>
+#include <thread>
 #include <cstdio>
 #include <ctime>
 
@@ -163,8 +164,8 @@ static void append_info_chunk(const std::string& path,
 //  3. PACKET SIZE VALIDATION: Every packet is checked against the expected
 //     payload size before being enqueued; corrupt/truncated frames are dropped.
 // ─────────────────────────────────────────────────────────────────────────────
-static constexpr int TARGET_FILL_PACKETS = 4;   // 4 × 10 ms = 40 ms pre-fill
-static constexpr int LOW_WATER_MARK      = 1;   // re-fill if we drop this low
+static constexpr int TARGET_FILL_PACKETS = 6;   // 60 ms — absorbs scheduler spikes
+static constexpr int LOW_WATER_MARK      = 3;   // 30 ms — tighter hysteresis band
 static constexpr int HIGH_WATER_MARK     = 180; // drop oldest if we exceed this
 
 AudioQueue jitter_buffer(200);
@@ -172,6 +173,22 @@ static std::vector<uint8_t> residual_pcm;
 
 // Playback is gated until the jitter buffer has accumulated enough packets.
 static std::atomic<bool> playback_armed{false};
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WAV writer thread
+//
+//  WAV IO (fwrite) must NEVER happen inside the audio callback — any disk
+//  stall will cause the callback to overrun, producing dropouts in both
+//  playback and the recording.  Instead the audio callback pushes raw PCM
+//  into wav_write_queue and a dedicated writer thread drains it.
+//
+//  The queue holds raw PCM byte vectors.  A zero-size sentinel signals shutdown.
+// ─────────────────────────────────────────────────────────────────────────────
+static AudioQueue              wav_write_queue(2000); // 20 s headroom @ 10 ms/packet
+static std::thread             wav_writer_thread;
+static std::atomic<bool>       wav_writer_running{false};
+static std::condition_variable wav_writer_cv;
+static std::mutex              wav_writer_cv_mtx;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  WAV encoder state
@@ -205,11 +222,70 @@ static std::string node_a_ws_url;
 static std::vector<uint8_t> last_good_pcm;
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  Enqueue PCM for the writer thread (called from audio callback — no IO here)
+// ─────────────────────────────────────────────────────────────────────────────
+static void wav_write_pcm(const uint8_t* pcm, size_t bytes)
+{
+    if (bytes == 0) return;
+    std::vector<uint8_t> buf(pcm, pcm + bytes);
+    wav_write_queue.push(buf); // non-blocking; drops only if queue is full (> 20 s backlog)
+    wav_writer_cv.notify_one();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  WAV writer thread body
+// ─────────────────────────────────────────────────────────────────────────────
+static void wav_writer_loop()
+{
+    while (wav_writer_running.load(std::memory_order_acquire)) {
+        {
+            std::unique_lock<std::mutex> lk(wav_writer_cv_mtx);
+            wav_writer_cv.wait_for(lk, std::chrono::milliseconds(5),
+                [&]{ return wav_write_queue.size() > 0
+                         || !wav_writer_running.load(std::memory_order_acquire); });
+        }
+        std::vector<uint8_t> buf;
+        while (wav_write_queue.pop(buf)) {
+            if (buf.empty()) continue; // sentinel / padding marker
+            std::lock_guard<std::mutex> lk(wav_mutex);
+            if (wav_encoder_ready) {
+                ma_encoder_write_pcm_frames(&wav_encoder,
+                    buf.data(),
+                    buf.size() / BYTES_PER_FRAME,
+                    nullptr);
+            }
+        }
+    }
+    // Drain any remaining frames after stop signal
+    std::vector<uint8_t> buf;
+    while (wav_write_queue.pop(buf)) {
+        if (buf.empty()) continue;
+        std::lock_guard<std::mutex> lk(wav_mutex);
+        if (wav_encoder_ready)
+            ma_encoder_write_pcm_frames(&wav_encoder,
+                buf.data(), buf.size() / BYTES_PER_FRAME, nullptr);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  Open a new WAV file for a new clip
 // ─────────────────────────────────────────────────────────────────────────────
 static void open_new_wav(uint32_t clip_index, uint32_t session_id,
                           uint64_t session_start_us, uint32_t sr)
 {
+    // Flush any pending PCM from the previous clip before closing the encoder.
+    // The writer thread may still hold frames that belong to the old file.
+    {
+        std::vector<uint8_t> buf;
+        while (wav_write_queue.pop(buf)) {
+            if (buf.empty()) continue;
+            std::lock_guard<std::mutex> lk(wav_mutex);
+            if (wav_encoder_ready)
+                ma_encoder_write_pcm_frames(&wav_encoder,
+                    buf.data(), buf.size() / BYTES_PER_FRAME, nullptr);
+        }
+    }
+
     std::lock_guard<std::mutex> lk(wav_mutex);
 
     if (wav_encoder_ready) {
@@ -232,6 +308,7 @@ static void open_new_wav(uint32_t clip_index, uint32_t session_id,
     }
 }
 
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Playback callback  (audio thread — never block)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -251,6 +328,14 @@ void playback_data_callback(ma_device* /*pDevice*/, void* pOutput,
     if (jitter_buffer.size() < static_cast<size_t>(LOW_WATER_MARK) && residual_pcm.empty()) {
         playback_armed.store(false, std::memory_order_release);
         underruns.fetch_add(1, std::memory_order_relaxed);
+        // Write silence to WAV so the file stays time-aligned with real time.
+        static const std::vector<uint8_t> silence_block(480 * BYTES_PER_FRAME, 0);
+        size_t pad = expected_bytes;
+        while (pad > 0) {
+            size_t chunk = std::min(pad, silence_block.size());
+            wav_write_pcm(silence_block.data(), chunk);
+            pad -= chunk;
+        }
         std::memset(out, 0, expected_bytes);
         return;
     }
@@ -261,15 +346,7 @@ void playback_data_callback(ma_device* /*pDevice*/, void* pOutput,
     if (!residual_pcm.empty()) {
         size_t copy = std::min(expected_bytes, residual_pcm.size());
         std::memcpy(out, residual_pcm.data(), copy);
-
-        // Write to WAV
-        {
-            std::unique_lock<std::mutex> lk(wav_mutex, std::try_to_lock);
-            if (lk.owns_lock() && wav_encoder_ready) {
-                ma_encoder_write_pcm_frames(&wav_encoder, residual_pcm.data(), copy / BYTES_PER_FRAME, nullptr);
-            }
-        }
-
+        wav_write_pcm(residual_pcm.data(), copy);
         bytes_written += copy;
         residual_pcm.erase(residual_pcm.begin(), residual_pcm.begin() + copy);
     }
@@ -285,15 +362,7 @@ void playback_data_callback(ma_device* /*pDevice*/, void* pOutput,
             size_t copy = std::min(bytes_needed, plen);
 
             std::memcpy(out + bytes_written, pcm, copy);
-
-            // Write to WAV
-            {
-                std::unique_lock<std::mutex> lk(wav_mutex, std::try_to_lock);
-                if (lk.owns_lock() && wav_encoder_ready) {
-                    ma_encoder_write_pcm_frames(&wav_encoder, pcm, copy / BYTES_PER_FRAME, nullptr);
-                }
-            }
-
+            wav_write_pcm(pcm, copy);
             bytes_written += copy;
 
             // Save any unread bytes for the next callback
@@ -305,24 +374,39 @@ void playback_data_callback(ma_device* /*pDevice*/, void* pOutput,
             last_good_pcm.assign(pcm, pcm + plen);
 
         } else {
-            // Jitter buffer ran dry before we could fill the request
             break;
         }
     }
 
-    // Step 3: Handle underruns if we couldn't get enough data
+    // Step 3: Handle underruns — write silence/PLC to BOTH output AND WAV file
     if (bytes_written < expected_bytes) {
         size_t deficit = expected_bytes - bytes_written;
 
-        // PLC: repeat last good chunk
         if (!last_good_pcm.empty()) {
             size_t plc_copy = std::min(deficit, last_good_pcm.size());
             std::memcpy(out + bytes_written, last_good_pcm.data(), plc_copy);
+            // Write PLC audio (not silence) to WAV — preserves timing and
+            // avoids the click-at-gap that silence would cause.
+            wav_write_pcm(last_good_pcm.data(), plc_copy);
             if (plc_copy < deficit) {
                 std::memset(out + bytes_written + plc_copy, 0, deficit - plc_copy);
+                static const std::array<uint8_t, 64> zero_buf{};
+                size_t remaining = deficit - plc_copy;
+                while (remaining > 0) {
+                    size_t chunk = std::min(remaining, zero_buf.size());
+                    wav_write_pcm(zero_buf.data(), chunk);
+                    remaining -= chunk;
+                }
             }
         } else {
             std::memset(out + bytes_written, 0, deficit);
+            static const std::array<uint8_t, 64> zero_buf{};
+            size_t remaining = deficit;
+            while (remaining > 0) {
+                size_t chunk = std::min(remaining, zero_buf.size());
+                wav_write_pcm(zero_buf.data(), chunk);
+                remaining -= chunk;
+            }
         }
     }
 }
@@ -410,6 +494,11 @@ int main(int argc, char* argv[])
     ma_device_start(&playback_device);
     std::cout << "[NODE B] Playback ready : "
               << playback_device.sampleRate << " Hz / 32-bit float / mono\n";
+
+    // ── Start WAV writer thread ───────────────────────────────────────────────
+    wav_writer_running.store(true, std::memory_order_release);
+    wav_writer_thread = std::thread(wav_writer_loop);
+    std::cout << "[NODE B] WAV writer thread started\n";
 
     // ── WebSocket client ──────────────────────────────────────────────────────
     ix::WebSocket webSocket;
@@ -552,6 +641,11 @@ int main(int argc, char* argv[])
 
     webSocket.stop();
     ma_device_uninit(&playback_device);
+
+    // ── Stop WAV writer thread (let it drain remaining frames first) ──────────
+    wav_writer_running.store(false, std::memory_order_release);
+    wav_writer_cv.notify_all();
+    if (wav_writer_thread.joinable()) wav_writer_thread.join();
 
     // ── Close WAV + embed metadata ─────────────────────────────────────────────
     std::string final_path;

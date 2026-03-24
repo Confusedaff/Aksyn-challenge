@@ -269,12 +269,24 @@ int main(int argc, char* argv[])
                   << "         Audio will still be captured but may be resampled by Windows.\n";
         cfg.wasapi.noAutoConvertSRC = MA_FALSE;
         rc = ma_device_init(NULL, &cfg, &capture_device);
+        std::cout << "[NODE A] WASAPI mode: "
+          << (cfg.wasapi.noAutoConvertSRC ? "EXCLUSIVE" : "SHARED (degraded!)")
+          << "\n";
     }
 #endif
 
+    #ifdef _WIN32
     if (rc != MA_SUCCESS) {
-        std::cerr << "[NODE A] Failed to init capture device\n"; return -1;
+        std::cerr << "[NODE A] WARNING: Exclusive WASAPI failed — falling back to SHARED mode.\n"
+                << "         Audio bandwidth will be limited by the Windows Audio Engine.\n"
+                << "         To fix: close Teams, browsers, or any app holding WASAPI exclusive lock.\n";
+        cfg.wasapi.noAutoConvertSRC = MA_FALSE;
+        rc = ma_device_init(NULL, &cfg, &capture_device);
+        if (rc == MA_SUCCESS) {
+            std::cout << "[NODE A] WASAPI capture mode : SHARED (OS may resample — quality degraded)\n";
+        }
     }
+    #endif
 
     uint32_t actual_sr = capture_device.sampleRate;
     if (actual_sr != SAMPLE_RATE) {
