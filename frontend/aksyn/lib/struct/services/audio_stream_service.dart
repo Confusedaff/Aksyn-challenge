@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:aksyn_monitor/models/audio_packet.dart';
 import 'package:aksyn_monitor/models/stream_metrics.dart';
 import 'package:flutter/foundation.dart';
@@ -155,8 +154,6 @@ class AudioStreamService extends ChangeNotifier {
     }
 
     // ── Binary frame = audio packet ──────────────────────────────────────────
-    if (raw is! Uint8List) return;
-
     final packet = AudioPacket.fromBytes(raw);
     if (packet == null) return;
 
