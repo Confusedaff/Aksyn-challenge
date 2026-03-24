@@ -53,8 +53,12 @@ Once finished, you will find `node_A` and `node_B` (or `.exe` files on Windows) 
 ## 🚀 How to Run
 
 ### 1. Running Locally (Same Computer)
-If you are testing both nodes on the same machine, run them in two separate terminal windows.
+If you are testing both nodes on the same machine, run them in two separate terminal windows and go into the build folder.
 
 **Terminal 1:**
 ```bash
-./node_A
+./node_A.exe
+
+**Terminal 2:**
+```bash
+./node_B.exe
