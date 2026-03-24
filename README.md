@@ -58,6 +58,7 @@ If you are testing both nodes on the same machine, run them in two separate term
 **Terminal 1:**
 ```bash
 ./node_A.exe
+```
 
 **Terminal 2:**
 ```bash
