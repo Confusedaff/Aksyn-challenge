@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <new>
+#include "db_writer.h"
 
 #ifdef _WIN32
 #include <direct.h>
@@ -180,6 +181,18 @@ void WavSaver::close_and_embed_metadata(const ClipStats& stats) {
         append_info_chunk(path, stats);
         std::cout << "[WAV SAVER] Metadata embedded → " << path << "\n";
     }
+    db_record_clip(
+    stats.clip_index,
+    static_cast<uint32_t>(stats.session_id),
+    stats.session_start_us,
+    stats.clip_start_us,
+    stats.sample_rate,
+    path,
+    stats.pkts_rx,
+    stats.pkts_dropped,
+    stats.mean_latency_ms,
+    stats.p95_latency_ms
+    );
 }
 
 std::string WavSaver::current_path() const {

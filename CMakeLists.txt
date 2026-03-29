@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(AudioLink VERSION 2.0 LANGUAGES CXX)
+project(AudioLink VERSION 2.0 LANGUAGES C CXX)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  C++ standard
@@ -231,3 +231,23 @@ message(STATUS "  IXWebSocket : ${IX_TARGET}")
 message(STATUS "  RNNoise     : ${RNNOISE_FOUND}")
 message(STATUS "  Output dir  : ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 message(STATUS "")
+
+# ── sqlite3 static lib ────────────────────────────────────────────────────────
+add_library(sqlite3_lib STATIC sqlite3.c)
+target_include_directories(sqlite3_lib PUBLIC "${CMAKE_SOURCE_DIR}")
+if(UNIX)
+    target_link_libraries(sqlite3_lib PUBLIC dl pthread)
+endif()
+
+# ── api_server ────────────────────────────────────────────────────────────────
+add_executable(api_server api_server.cpp db_writer.cpp)
+target_include_directories(api_server PRIVATE "${CMAKE_SOURCE_DIR}")
+target_link_libraries(api_server PRIVATE sqlite3_lib ${PLATFORM_LIBS})
+if(WIN32)
+    target_link_libraries(api_server PRIVATE ws2_32)
+endif()
+
+# ── Add db_writer to node_B ───────────────────────────────────────────────────
+# Find the existing node_B target and add db_writer.cpp to it
+target_sources(node_B PRIVATE db_writer.cpp)
+target_link_libraries(node_B PRIVATE sqlite3_lib)
