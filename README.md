@@ -456,24 +456,6 @@ A setting of `TARGET_FILL_PACKETS = 2` / `LOW_WATER_MARK = 1` gives ~20 ms pre-f
 
 ---
 
-## Do You Need Docker?
-
-**No.** Docker is not necessary or recommended for this project for the following reasons:
-
-- **Audio hardware access:** Both Node A (microphone capture) and Node B (speaker playback) need direct access to the host's audio devices. Docker containers do not have access to audio hardware by default, and getting audio passthrough working in Docker on Windows (where WASAPI Exclusive mode is required) is either unsupported or fragile.
-
-- **Low-latency requirements:** Docker adds a virtualisation layer that can introduce scheduling jitter, which works against the latency goals of this application.
-
-- **Simple dependency footprint:** The only non-system dependency is IXWebSocket, which is a single `pacman` or `apt` install command. There is no complex service stack, no database, no message broker — nothing that Docker is designed to simplify.
-
-- **WASAPI Exclusive mode (Windows):** This mode bypasses the Windows Audio Engine to avoid resampling. It requires direct kernel-level device access that is not available to containerised processes.
-
-**When Docker could make sense:** If you wanted to run Node B on a headless Linux server purely for recording (no playback), you could containerise it — but you would still need to disable the playback device or mock it, which adds complexity without much benefit. A plain binary on the server is simpler.
-
-**Summary:** Clone the repo, install IXWebSocket via your package manager, drop in `miniaudio.h`, run CMake. That is the entire setup — no container runtime needed.
-
----
-
 ## Project File Reference
 
 ```
@@ -493,14 +475,6 @@ Aksyn challenge/
 ├── wav_saver.h / .cpp      Background writer thread, ma_encoder, INFO chunk
 └── receiver.h / .cpp       WebSocket client, jitter buffer, PLC, latency stats
 ```
-
-**Important — MINIAUDIO_IMPLEMENTATION:**
-miniaudio is a single-header library. Its implementation block must appear in exactly one `.cpp` per executable:
-- Node A → `audio_capture.cpp` defines `MINIAUDIO_IMPLEMENTATION`
-- Node B → `playback.cpp` defines `MINIAUDIO_IMPLEMENTATION`
-
-All other files that include `miniaudio.h` get only the declarations. Do not add `MINIAUDIO_IMPLEMENTATION` anywhere else.
-
 ---
 
 ## Troubleshooting
