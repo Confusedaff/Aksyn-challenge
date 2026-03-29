@@ -8,7 +8,7 @@ enum StreamConnectionState { disconnected, connecting, connected, error }
 
 class AudioStreamService extends ChangeNotifier {
   // ── Config ──────────────────────────────────────────────────────────────────
-  String host = '127.0.0.1';
+  String host = '192.168.1.37';
   int    port = 9001;
 
   // ── Connection state ────────────────────────────────────────────────────────

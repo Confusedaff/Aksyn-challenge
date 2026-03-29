@@ -16,7 +16,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final _hostController = TextEditingController(text: '127.0.0.1');
+  final _hostController = TextEditingController(text: '100.95.213.57');
   final _portController = TextEditingController(text: '9001');
 
   @override

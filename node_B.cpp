@@ -2,7 +2,6 @@
 #include "wav_saver.h"
 #include "playback.h"
 #include "receiver.h"
-
 #include <ixwebsocket/IXNetSystem.h>
 #include <iostream>
 #include <iomanip>
@@ -50,7 +49,7 @@ int main(int argc, char* argv[])
 #endif
 
     // ── Parse args ────────────────────────────────────────────────────────────
-    std::string node_a_host = "127.0.0.1";
+    std::string node_a_host="127.0.0.1";
     if (argc >= 2) node_a_host = argv[1];
     std::string ws_url = "ws://" + node_a_host + ":9001";
 

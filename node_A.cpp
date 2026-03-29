@@ -34,7 +34,7 @@ int main(int argc, char* argv[])
 #endif
 
     // ── Parse args ────────────────────────────────────────────────────────────
-    std::string bind_host = "127.0.0.1";
+    std::string bind_host = "0.0.0.0";
     if (argc >= 2) bind_host = argv[1];
 
     // ── Init ──────────────────────────────────────────────────────────────────
