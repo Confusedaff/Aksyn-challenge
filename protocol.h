@@ -66,6 +66,10 @@ inline std::string timestamp_for_filename(uint64_t epoch_us) {
     return buf;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Thread-safe ring buffer used as both the jitter buffer (node_B) and the
+//  WAV-write queue (node_B).  Holds raw byte vectors.
+// ─────────────────────────────────────────────────────────────────────────────
 class AudioQueue {
     std::vector<std::vector<uint8_t>> buffer;
     size_t head = 0, tail = 0, count = 0, capacity;
