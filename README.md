@@ -35,9 +35,9 @@ A high-fidelity, low-latency audio streaming system written in C++17 with a Flut
 │                                  │        │                                      │
 │  Microphone                      │        │  Receiver (IXWebSocket client)       │
 │      ↓                           │        │  Adaptive jitter buffer (200 pkts)   │
-│  AudioCapture (miniaudio)        │─ws:9001▶│  Packet Loss Concealment (PLC)      │
+│  AudioCapture (miniaudio)        │ws:9001▶│  Packet Loss Concealment (PLC)       │ 
 │  WASAPI Exclusive / 32-bit f32   │        │      ↓                  ↓            │
-│  Native sample rate (≤96 kHz)   │        │  Playback (miniaudio)  WavSaver      │
+│  Native sample rate (≤96 kHz)    │        │  Playback (miniaudio)  WavSaver      │
 │      ↓                           │        │  Real-time audio out   WAV file      │
 │  Transmitter (IXWebSocket srv)   │        │      ↓                               │
 │  Port 9001 / binary frames       │        │  db_writer → recordings.db           │
@@ -49,7 +49,7 @@ A high-fidelity, low-latency audio streaming system written in C++17 with a Flut
                                             ┌────────────────────────┐
                                             │  Flutter App (Android) │
                                             │  Monitor tab: WS:9001  │
-                                            │  Recordings tab: :8080  │
+                                            │  Recordings tab: :8080 │
                                             └────────────────────────┘
 ```
 
